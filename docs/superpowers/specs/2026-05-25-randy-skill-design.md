@@ -1,8 +1,13 @@
 # `/randy` — Macho Man Randy Savage Voice Toggle for Claude Code
 
-**Status:** Design approved
+**Status:** Design approved (revised 2026-05-25 after Claude Code mechanism verification)
 **Date:** 2026-05-25
 **Author:** Matt Read (with Claude)
+
+## Revision History
+
+- **2026-05-25 (initial):** Original design assuming UserPromptSubmit hook receives `$CLAUDE_SESSION_ID` and that hook stdout is directly injected into context.
+- **2026-05-25 (revised):** Verified via claude-code-guide that (a) UserPromptSubmit does NOT receive `$CLAUDE_SESSION_ID`, (b) hooks must emit JSON `{systemMessage: "..."}` to inject context, (c) slash commands are prompt templates the assistant interprets, not executed shell. Replaced session_id check with a SessionStart hook that wipes state on every new session — simpler and more reliable.
 
 ## Summary
 
@@ -45,14 +50,20 @@ The personality wrapper applies only to assistant prose in chat. Files written t
 ```
 ~/projects/randy/
 ├── commands/
-│   └── randy.md              # slash command definition
+│   └── randy.md              # slash command (prompt template)
 ├── hooks/
-│   └── randy-inject.sh       # UserPromptSubmit hook
+│   ├── randy-inject.sh       # UserPromptSubmit hook (injects persona)
+│   └── randy-reset.sh        # SessionStart hook (wipes state.json)
 ├── statusline/
 │   └── randy-seg.sh          # statusline segment script
 ├── persona/
 │   ├── dialed.md             # voice instructions for dialed-in intensity
 │   └── full.md               # voice instructions for full Madness
+├── tests/
+│   ├── hook-inject.test.sh   # smoke tests for inject hook
+│   ├── hook-reset.test.sh    # smoke test for reset hook
+│   ├── statusline.test.sh    # smoke tests for statusline segment
+│   └── install.test.sh       # sandboxed install/uninstall round-trip
 ├── install.sh                # installs symlinks + settings.json entries
 ├── uninstall.sh              # reverses install
 ├── README.md                 # docs + manual test checklist
@@ -67,13 +78,23 @@ The personality wrapper applies only to assistant prose in chat. Files written t
 ```
 ~/.claude/commands/randy.md           → symlink to ~/projects/randy/commands/randy.md
 ~/.claude/hooks/randy-inject.sh       → symlink to ~/projects/randy/hooks/randy-inject.sh
+~/.claude/hooks/randy-reset.sh        → symlink to ~/projects/randy/hooks/randy-reset.sh
 ~/.claude/statusline/randy-seg.sh     → symlink to ~/projects/randy/statusline/randy-seg.sh
 ~/.claude/randy/persona/              → symlink to ~/projects/randy/persona/
 ~/.claude/randy/state.json            # runtime state (NOT symlinked, NOT in git)
-~/.claude/settings.json                # extended with hook registration
+~/.claude/settings.json                # extended with TWO hook registrations
 ```
 
 ### Data flow
+
+On Claude Code session start:
+
+```
+Claude Code launches
+  → SessionStart hook fires
+  → randy-reset.sh deletes ~/.claude/randy/state.json (if present)
+  → Macho mode is now off in this session
+```
 
 On every user message:
 
@@ -82,21 +103,21 @@ User types message
   → Claude Code fires UserPromptSubmit hook
   → randy-inject.sh runs:
       reads ~/.claude/randy/state.json
-      if missing OR session_id mismatch → emit nothing, exit 0
-      else → read persona/{dialed|full}.md, emit as system reminder via stdout
-  → Claude receives prompt + optional reminder
-  → Claude responds (in Macho voice if reminder present, normally if not)
+      if missing or enabled=false → emit nothing (exit 0), Claude responds normally
+      else → read persona/{dialed|full}.md, emit JSON {"systemMessage": "<persona>"} on stdout
+  → Claude Code injects the systemMessage into Claude's context as a system reminder
+  → Claude responds in Macho voice
 ```
 
 On `/randy on|off|status`:
 
 ```
 User types /randy <args>
-  → Claude Code expands the slash-command markdown into a prompt
-  → Prompt instructs Claude to:
-      - parse args
-      - write or delete ~/.claude/randy/state.json accordingly
-      - emit a short confirmation message
+  → Claude Code expands the slash-command markdown template with $ARGUMENTS substituted
+  → The expanded text becomes Claude's next prompt
+  → Claude (per the command body's instructions) uses the Bash tool to:
+      - write or delete ~/.claude/randy/state.json
+      - emit a short confirmation message to the user
 ```
 
 ## Behavior Contract
@@ -109,7 +130,7 @@ User types /randy <args>
 | `/randy on dialed` | Same as above, explicit |
 | `/randy on full` | Enable at **full Madness** intensity |
 | `/randy off` | Disable Macho mode (delete state file) |
-| `/randy status` | Show current state (on/off, intensity, session_id, started_at) |
+| `/randy status` | Show current state (on/off, intensity, started_at) |
 | `/randy` (no arg) | Show short help + current status |
 
 ### Marker file format (`~/.claude/randy/state.json`)
@@ -118,18 +139,28 @@ User types /randy <args>
 {
   "enabled": true,
   "intensity": "dialed",
-  "session_id": "<value of $CLAUDE_SESSION_ID at /randy on time>",
   "started_at": "2026-05-25T16:30:00Z"
 }
 ```
 
-The file's mere presence is not enough — `session_id` must match the current session, otherwise the hook treats it as off (auto-cleanup of stale state).
+The file's mere presence (with `enabled: true`) is enough to activate Macho mode. The `SessionStart` hook (`randy-reset.sh`) deletes this file whenever a new Claude Code session begins, providing the session-keyed behavior. There is no `session_id` field — `$CLAUDE_SESSION_ID` is not available to `UserPromptSubmit` hooks, and the SessionStart wipe makes per-message session matching unnecessary.
 
-### Hook behavior (`randy-inject.sh`)
+### Hook behavior
 
-Registered in `~/.claude/settings.json` under the `UserPromptSubmit` event.
+Two hooks total, both registered in `~/.claude/settings.json`.
 
-Pseudo-code:
+#### `randy-reset.sh` — SessionStart hook
+
+```bash
+#!/usr/bin/env bash
+# Wipe randy state on every new Claude Code session.
+# Fail silently — never block session startup.
+trap 'exit 0' ERR
+rm -f "$HOME/.claude/randy/state.json"
+exit 0
+```
+
+#### `randy-inject.sh` — UserPromptSubmit hook
 
 ```bash
 #!/usr/bin/env bash
@@ -141,26 +172,26 @@ PERSONA_DIR="$HOME/.claude/randy/persona"
 trap 'exit 0' ERR
 
 [[ -f "$STATE_FILE" ]] || exit 0
+command -v jq >/dev/null 2>&1 || exit 0
 
 enabled=$(jq -r '.enabled // false' "$STATE_FILE")
 intensity=$(jq -r '.intensity // "dialed"' "$STATE_FILE")
-saved_session=$(jq -r '.session_id // ""' "$STATE_FILE")
 
 [[ "$enabled" == "true" ]] || exit 0
-[[ "$saved_session" == "$CLAUDE_SESSION_ID" ]] || exit 0
 
 persona_file="$PERSONA_DIR/${intensity}.md"
 [[ -f "$persona_file" ]] || exit 0
 
-# Emit persona instructions as a system reminder
-cat <<EOF
-<system-reminder>
-Macho mode is currently ON (intensity: $intensity). Respond as Randy "Macho Man" Savage per the following persona instructions:
+# Build the system reminder message
+reminder="Macho mode is currently ON (intensity: $intensity). Respond as Randy \"Macho Man\" Savage per the following persona instructions:
 
-$(cat "$persona_file")
-</system-reminder>
-EOF
+$(cat "$persona_file")"
+
+# Emit Claude Code hook JSON to inject the reminder
+jq -n --arg msg "$reminder" '{systemMessage: $msg}'
 ```
+
+The hook's stdout MUST be valid JSON with a `systemMessage` field — that is what Claude Code's hook protocol requires to inject context. Plain stdout text is logged but not injected.
 
 ### Persona file contents
 
@@ -187,24 +218,24 @@ The two files differ in **density**, not rules:
 
 | Case | Behavior |
 |---|---|
-| New Claude Code session | Marker's `session_id` won't match `$CLAUDE_SESSION_ID` → hook silently emits nothing → fresh start |
+| New Claude Code session | SessionStart hook (`randy-reset.sh`) deletes state.json → fresh start |
 | Escape phrase in prompt | Persona instructions tell Claude to detect and drop character for that response, marker stays |
-| `/randy on` when already on | Updates intensity in state file, no error |
+| `/randy on` when already on | Overwrites state.json with new intensity, no error |
 | `/randy off` when already off | No-op (state file already absent), no error |
 | Hook script error | `trap 'exit 0' ERR` ensures it fails silently — never blocks the prompt |
-| State file corrupted JSON | `jq` returns empty / hook treats as off, logs to stderr (not stdout — stderr doesn't pollute prompt) |
-| Missing `$CLAUDE_SESSION_ID` env var | Hook treats as off (cannot verify session match) |
+| State file corrupted JSON | `jq` returns empty / hook treats as off, exits 0 cleanly |
 | Missing `jq` binary | Hook exits 0 (Macho mode silently inactive). `install.sh` checks for `jq` and warns if absent. |
+| Multiple Claude Code instances open concurrently | They share `~/.claude/randy/state.json` — toggling in one affects all. Documented as a known limitation. |
 
 ## Statusline Integration
 
-A small script (`statusline/randy-seg.sh`) outputs the Macho segment or nothing:
+A small script (`statusline/randy-seg.sh`) outputs the Macho segment or nothing. Claude Code passes a JSON blob on stdin (containing `model`, `cwd`, `session_id`, `context_window`, etc.) — the script reads it but the segment only depends on `~/.claude/randy/state.json`.
 
 | State | Output (ANSI-colored) |
 |---|---|
 | Off | (empty string — segment disappears) |
-| Dialed | `🕶️ MACHO: DIALED` in **yellow** |
-| Full | `🕶️ MACHO: FULL` in **red** |
+| Dialed | `🕶️ MACHO: DIALED` in **yellow** (`\033[33m`) |
+| Full | `🕶️ MACHO: FULL` in **red** (`\033[31m`) |
 
 ### Install strategy for statusline
 
@@ -231,27 +262,29 @@ Color is reserved for the statusline, where it's confirmed to work.
 
 `install.sh` is idempotent. Run from `~/projects/randy/`:
 
-1. Create `~/.claude/randy/` directory
-2. `chmod +x` source scripts (`hooks/randy-inject.sh`, `statusline/randy-seg.sh`, `install.sh`, `uninstall.sh`)
-3. Create symlinks:
+1. Check `jq` is installed; warn if not (required for hooks and statusline)
+2. Create `~/.claude/randy/` directory
+3. `chmod +x` source scripts (`hooks/randy-inject.sh`, `hooks/randy-reset.sh`, `statusline/randy-seg.sh`, `install.sh`, `uninstall.sh`)
+4. Create symlinks:
    - `~/.claude/commands/randy.md` → source
    - `~/.claude/hooks/randy-inject.sh` → source
+   - `~/.claude/hooks/randy-reset.sh` → source
    - `~/.claude/statusline/randy-seg.sh` → source
    - `~/.claude/randy/persona/` → source persona dir
-4. Backup `~/.claude/settings.json` to `~/.claude/settings.json.bak.<timestamp>`
-5. Detect existing `UserPromptSubmit` hook registration:
-   - If none → add registration for `randy-inject.sh`
-   - If already registered for `randy-inject.sh` → skip
-   - If a different one → print a warning + the manual snippet, do NOT auto-modify
-6. Print the statusline snippet for the user to paste into their statusline script
-7. Print success message + verification commands:
-   - `/randy status` (should show off, session_id absent)
+5. Backup `~/.claude/settings.json` to `~/.claude/settings.json.bak.<timestamp>`
+6. Patch `~/.claude/settings.json` to register both hooks:
+   - `UserPromptSubmit` matcher `*` → `bash ~/.claude/hooks/randy-inject.sh`
+   - `SessionStart` matcher `*` → `bash ~/.claude/hooks/randy-reset.sh`
+   - Both entries idempotent — if a randy-* registration is already present, skip; if non-randy registrations exist for these events, append rather than replace
+7. Print the statusline snippet for the user to paste into their statusline script
+8. Print success message + verification commands:
+   - `/randy status` (should show off)
    - `/randy on` then re-prompt (should respond in Macho voice)
    - `/randy off` (should restore normal)
 
 `uninstall.sh` reverses everything:
-1. Remove the four symlinks
-2. Restore `~/.claude/settings.json` from latest backup (or prune the randy hook entry safely)
+1. Remove all symlinks created by install
+2. Patch `~/.claude/settings.json` to remove only the randy-* hook entries (preserving other registrations); backup first
 3. Delete `~/.claude/randy/` runtime directory
 4. Print the statusline snippet the user needs to manually remove
 
@@ -269,13 +302,16 @@ Manual smoke test checklist (in `README.md`):
 8. **Hook resilience:** Corrupt the state.json, send a prompt — verify hook fails silently, prompt still works
 9. **Install/uninstall round-trip:** Install, verify works, uninstall, verify clean
 
-## Open Questions (for implementation)
+## Resolved Open Questions
 
-- Does Claude Code support the `UserPromptSubmit` hook event name as written, or is it called something else? (Verify against current Claude Code docs during implementation — use claude-code-guide agent.)
-- What's the exact `~/.claude/settings.json` schema for registering a hook? (Verify during implementation.)
-- Does the slash-command markdown have access to `$CLAUDE_SESSION_ID` when it writes the state file? (Verify during implementation; if not, we may need to have the hook write the session_id on first invocation instead.)
+All implementation-time unknowns from the initial draft have been verified via claude-code-guide (cited against `code.claude.com/docs` v2.1.x, 2026-05-25):
 
-These are not blockers for design approval — they're implementation-time lookups that the writing-plans skill will handle.
+- **Hook event name:** `UserPromptSubmit` (PascalCase, exact).
+- **Hook registration schema:** Nested under `hooks.UserPromptSubmit[].hooks[]` with `type: "command"` and `command: "bash ..."` (see Hook Behavior section for the actual JSON shape).
+- **Hook output:** Hooks must emit JSON with a `systemMessage` field on stdout to inject context. Plain text is logged but not injected.
+- **Hook env vars:** `UserPromptSubmit` receives `CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT`, `CLAUDE_PLUGIN_DATA`, `CLAUDE_EFFORT`. **Not** `CLAUDE_SESSION_ID` — hence the SessionStart-hook approach for session-keyed behavior.
+- **Slash command model:** Prompt template, not executed shell. `$ARGUMENTS` / `$1` / `$N` are substituted into the markdown body before Claude reads it. Env vars are unavailable inside the template body.
+- **Statusline:** Receives full session JSON on stdin (includes `session_id`, `model`, `cwd`, etc.), outputs plain text + ANSI. Refreshes event-driven with 300ms debounce; optional `refreshInterval` for time-based data.
 
 ## Acceptance Criteria
 
