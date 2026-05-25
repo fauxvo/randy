@@ -18,12 +18,7 @@ setup_sandbox() {
   SANDBOX=$(mktemp -d -t randy-test.XXXXXX)
   export HOME="$SANDBOX"
   mkdir -p "$HOME/.claude/randy"
-  # Mirror persona files into sandbox if they exist (created in Task 3)
-  if [[ -d "$REPO_ROOT/persona" && -n "$(ls -A "$REPO_ROOT/persona" 2>/dev/null | grep -v gitkeep)" ]]; then
-    cp -R "$REPO_ROOT/persona" "$HOME/.claude/randy/persona"
-  else
-    mkdir -p "$HOME/.claude/randy/persona"
-  fi
+  cp -R "$REPO_ROOT/persona" "$HOME/.claude/randy/persona"
 }
 
 # teardown_sandbox: clean up the temp HOME
