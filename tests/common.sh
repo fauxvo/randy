@@ -76,6 +76,20 @@ assert_empty() {
   fi
 }
 
+# assert_nonempty: check that a value is NOT the empty string
+assert_nonempty() {
+  local desc="$1"
+  local value="$2"
+  if [[ -n "$value" ]]; then
+    PASS=$((PASS + 1))
+    printf "  \033[32mPASS\033[0m  %s\n" "$desc"
+  else
+    FAIL=$((FAIL + 1))
+    FAILURES+=("$desc — expected non-empty")
+    printf "  \033[31mFAIL\033[0m  %s\n" "$desc"
+  fi
+}
+
 # summary: print results and exit with appropriate code
 summary() {
   local total=$((PASS + FAIL))

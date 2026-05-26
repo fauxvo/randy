@@ -31,7 +31,7 @@ assert_contains "output mentions dialed intensity" "$out" "intensity: dialed"
 assert_contains "output includes persona content" "$out" "Macho Mode: DIALED-IN"
 # Verify it parses as valid JSON
 parsed=$(echo "$out" | jq -r '.systemMessage' 2>/dev/null)
-assert "output is valid JSON" "[[ -n \"$parsed\" ]]"
+assert_nonempty "output is valid JSON" "$parsed"
 teardown_sandbox
 
 # Case D: enabled=true, intensity=full -> JSON with full persona
