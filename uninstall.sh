@@ -23,6 +23,7 @@ rm_symlink "$CLAUDE_DIR/hooks/randy-inject.sh"
 rm_symlink "$CLAUDE_DIR/hooks/randy-reset.sh"
 rm_symlink "$CLAUDE_DIR/statusline/randy-seg.sh"
 rm_symlink "$CLAUDE_DIR/randy/persona"
+rm_symlink "$CLAUDE_DIR/randy/lib"
 
 # Step 2: prune settings.json (requires jq)
 if command -v jq >/dev/null 2>&1; then
@@ -58,8 +59,10 @@ else
   yellow "jq missing — settings.json was not pruned. Remove randy hook entries manually."
 fi
 
-# Step 3: remove runtime state and (empty) ~/.claude/randy dir
-rm -f "$CLAUDE_DIR/randy/state.json"
+# Step 3: remove runtime state files and (empty) ~/.claude/randy dir
+# Remove all per-session state files (state-<pid>.json) and legacy state.json
+rm -f "$CLAUDE_DIR/randy"/state-*.json 2>/dev/null || true
+rm -f "$CLAUDE_DIR/randy/state.json" 2>/dev/null || true
 if [[ -d "$CLAUDE_DIR/randy" ]]; then
   rmdir "$CLAUDE_DIR/randy" 2>/dev/null || true
 fi

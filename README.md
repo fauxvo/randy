@@ -76,7 +76,6 @@ After installing, run through these to confirm everything works:
 
 ## Known limitations
 
-- **Multiple Claude Code instances** share `~/.claude/randy/state.json`. Toggling in one affects all open instances.
 - **Chat output cannot be colored** — Claude Code's chat renderer doesn't document ANSI / HTML color support. The skill uses bold, italic, blockquote, ALL CAPS, and emoji for emphasis. Color is reserved for the statusline.
 
 ## Design + plan docs

@@ -20,6 +20,7 @@ assert "inject hook symlink exists" "[[ -L \"$HOME/.claude/hooks/randy-inject.sh
 assert "reset hook symlink exists" "[[ -L \"$HOME/.claude/hooks/randy-reset.sh\" ]]"
 assert "statusline symlink exists" "[[ -L \"$HOME/.claude/statusline/randy-seg.sh\" ]]"
 assert "persona symlink exists" "[[ -L \"$HOME/.claude/randy/persona\" ]]"
+assert "lib symlink exists" "[[ -L \"$HOME/.claude/randy/lib\" ]]"
 
 # settings.json patched correctly
 settings_content=$(cat "$HOME/.claude/settings.json")
@@ -75,14 +76,16 @@ assert "inject hook symlink removed" "[[ ! -L \"$HOME/.claude/hooks/randy-inject
 assert "reset hook symlink removed" "[[ ! -L \"$HOME/.claude/hooks/randy-reset.sh\" ]]"
 assert "statusline symlink removed" "[[ ! -L \"$HOME/.claude/statusline/randy-seg.sh\" ]]"
 assert "persona symlink removed" "[[ ! -L \"$HOME/.claude/randy/persona\" ]]"
+assert "lib symlink removed" "[[ ! -L \"$HOME/.claude/randy/lib\" ]]"
 # settings.json no longer mentions randy
 settings_content=$(cat "$HOME/.claude/settings.json")
 [[ "$settings_content" == *"randy-inject"* ]] && fail=1 || fail=0
 assert "settings.json no longer mentions randy-inject" "[[ $fail -eq 0 ]]"
 [[ "$settings_content" == *"randy-reset"* ]] && fail=1 || fail=0
 assert "settings.json no longer mentions randy-reset" "[[ $fail -eq 0 ]]"
-# runtime state.json gone
-assert "runtime state cleaned" "[[ ! -f \"$HOME/.claude/randy/state.json\" ]]"
+# runtime state files gone (pattern check)
+state_count=$(ls "$HOME/.claude/randy/state-"*.json 2>/dev/null | wc -l | tr -d ' ')
+assert "runtime state cleaned" "[[ $state_count -eq 0 ]]"
 teardown_sandbox
 
 # Case D: uninstall preserves unrelated hooks

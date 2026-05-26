@@ -13,7 +13,7 @@ teardown_sandbox
 
 # Case B: state file with enabled=false -> silent, exit 0
 setup_sandbox
-echo '{"enabled":false,"intensity":"dialed"}' > "$HOME/.claude/randy/state.json"
+echo '{"enabled":false,"intensity":"dialed"}' > "$HOME/.claude/randy/state-${RANDY_SESSION_KEY}.json"
 out=$(bash "$REPO_ROOT/hooks/randy-inject.sh" 2>/dev/null)
 rc=$?
 assert "exits 0 when enabled=false" "[[ $rc -eq 0 ]]"
@@ -22,7 +22,7 @@ teardown_sandbox
 
 # Case C: enabled=true, intensity=dialed -> JSON with persona content
 setup_sandbox
-echo '{"enabled":true,"intensity":"dialed"}' > "$HOME/.claude/randy/state.json"
+echo '{"enabled":true,"intensity":"dialed"}' > "$HOME/.claude/randy/state-${RANDY_SESSION_KEY}.json"
 out=$(bash "$REPO_ROOT/hooks/randy-inject.sh" 2>/dev/null)
 rc=$?
 assert "exits 0 when enabled=true" "[[ $rc -eq 0 ]]"
@@ -38,7 +38,7 @@ teardown_sandbox
 
 # Case D: enabled=true, intensity=full -> JSON with full persona
 setup_sandbox
-echo '{"enabled":true,"intensity":"full"}' > "$HOME/.claude/randy/state.json"
+echo '{"enabled":true,"intensity":"full"}' > "$HOME/.claude/randy/state-${RANDY_SESSION_KEY}.json"
 out=$(bash "$REPO_ROOT/hooks/randy-inject.sh" 2>/dev/null)
 rc=$?
 assert "exits 0 when intensity=full" "[[ $rc -eq 0 ]]"
@@ -47,7 +47,7 @@ teardown_sandbox
 
 # Case E: corrupted JSON -> silent, exit 0 (no crash, no garbage on stdout)
 setup_sandbox
-echo 'not valid json {{{' > "$HOME/.claude/randy/state.json"
+echo 'not valid json {{{' > "$HOME/.claude/randy/state-${RANDY_SESSION_KEY}.json"
 out=$(bash "$REPO_ROOT/hooks/randy-inject.sh" 2>/dev/null)
 rc=$?
 assert "exits 0 with corrupted state" "[[ $rc -eq 0 ]]"
@@ -56,7 +56,7 @@ teardown_sandbox
 
 # Case F: enabled=true but intensity refers to missing persona file
 setup_sandbox
-echo '{"enabled":true,"intensity":"nonexistent"}' > "$HOME/.claude/randy/state.json"
+echo '{"enabled":true,"intensity":"nonexistent"}' > "$HOME/.claude/randy/state-${RANDY_SESSION_KEY}.json"
 out=$(bash "$REPO_ROOT/hooks/randy-inject.sh" 2>/dev/null)
 rc=$?
 assert "exits 0 with missing persona file" "[[ $rc -eq 0 ]]"

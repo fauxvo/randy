@@ -9,6 +9,7 @@
 - **2026-05-25 (initial):** Original design assuming UserPromptSubmit hook receives `$CLAUDE_SESSION_ID` and that hook stdout is directly injected into context.
 - **2026-05-25 (revised):** Verified via claude-code-guide that (a) UserPromptSubmit does NOT receive `$CLAUDE_SESSION_ID` as an env var, (b) hooks emit JSON on stdout to inject context, (c) slash commands are prompt templates the assistant interprets, not executed shell. Replaced session_id check with a SessionStart hook that wipes state on every new session — simpler and more reliable.
 - **2026-05-25 (re-revised after Context7 cross-check):** The claude-code-guide agent's "systemMessage field" recommendation was wrong. Per Context7's mirror of `code.claude.com/docs`, `systemMessage` shows a message to the USER, not the model. The correct field for context injection is `hookSpecificOutput.additionalContext` with `hookEventName: "UserPromptSubmit"`. Also: `session_id` IS available to UserPromptSubmit hooks — just on stdin JSON, not as an env var. Our SessionStart-reset approach still works (simpler than reading stdin), so it stays. Hook output JSON shape corrected.
+- **2026-05-25 (per-session state fix):** User reported that a single shared `~/.claude/randy/state.json` caused all concurrent Claude Code instances to share Macho mode — toggling on in one window activated it everywhere. Fixed by keying state files by the Claude Code process PID (`state-<pid>.json`). All components now source a shared `lib/randy-common.sh` helper that walks the process tree to find the `claude` binary PID. Tests use `RANDY_SESSION_KEY` env var override for deterministic sandboxing. SessionStart hook also prunes stale state files from previously-exited Claude Code instances.
 
 ## Summary
 
@@ -54,7 +55,9 @@ The personality wrapper applies only to assistant prose in chat. Files written t
 │   └── randy.md              # slash command (prompt template)
 ├── hooks/
 │   ├── randy-inject.sh       # UserPromptSubmit hook (injects persona)
-│   └── randy-reset.sh        # SessionStart hook (wipes state.json)
+│   └── randy-reset.sh        # SessionStart hook (wipes per-session state)
+├── lib/
+│   └── randy-common.sh       # shared helpers: session key, state path, pruning
 ├── statusline/
 │   └── randy-seg.sh          # statusline segment script
 ├── persona/
@@ -82,8 +85,9 @@ The personality wrapper applies only to assistant prose in chat. Files written t
 ~/.claude/hooks/randy-reset.sh        → symlink to ~/projects/randy/hooks/randy-reset.sh
 ~/.claude/statusline/randy-seg.sh     → symlink to ~/projects/randy/statusline/randy-seg.sh
 ~/.claude/randy/persona/              → symlink to ~/projects/randy/persona/
-~/.claude/randy/state.json            # runtime state (NOT symlinked, NOT in git)
-~/.claude/settings.json                # extended with TWO hook registrations
+~/.claude/randy/lib/                  → symlink to ~/projects/randy/lib/
+~/.claude/randy/state-<pid>.json      # runtime state, one file per Claude Code PID (NOT in git)
+~/.claude/settings.json               # extended with TWO hook registrations
 ```
 
 ### Data flow
@@ -134,7 +138,7 @@ User types /randy <args>
 | `/randy status` | Show current state (on/off, intensity, started_at) |
 | `/randy` (no arg) | Show short help + current status |
 
-### Marker file format (`~/.claude/randy/state.json`)
+### Marker file format (`~/.claude/randy/state-<pid>.json`)
 
 ```json
 {
@@ -144,7 +148,7 @@ User types /randy <args>
 }
 ```
 
-The file's mere presence (with `enabled: true`) is enough to activate Macho mode. The `SessionStart` hook (`randy-reset.sh`) deletes this file whenever a new Claude Code session begins, providing the session-keyed behavior. There is no `session_id` field — `$CLAUDE_SESSION_ID` is not available to `UserPromptSubmit` hooks, and the SessionStart wipe makes per-message session matching unnecessary.
+The file's mere presence (with `enabled: true`) is enough to activate Macho mode for that session. Each Claude Code instance uses its own file keyed by the `claude` binary's PID, found by walking the process tree upward from the component's own PID. The `SessionStart` hook (`randy-reset.sh`) deletes this session's file on startup (fresh start) and also prunes any stale `state-<pid>.json` files from Claude Code instances that have since exited. The slash command (`randy.md`) calls `randy_state_file` from `lib/randy-common.sh` to resolve the correct path at write time.
 
 ### Hook behavior
 
@@ -232,7 +236,7 @@ The two files differ in **density**, not rules:
 | Hook script error | `trap 'exit 0' ERR` ensures it fails silently — never blocks the prompt |
 | State file corrupted JSON | `jq` returns empty / hook treats as off, exits 0 cleanly |
 | Missing `jq` binary | Hook exits 0 (Macho mode silently inactive). `install.sh` checks for `jq` and warns if absent. |
-| Multiple Claude Code instances open concurrently | They share `~/.claude/randy/state.json` — toggling in one affects all. Documented as a known limitation. |
+| Multiple Claude Code instances open concurrently | Each instance uses its own `state-<pid>.json`. Toggling in one session does NOT affect others. |
 
 ## Statusline Integration
 

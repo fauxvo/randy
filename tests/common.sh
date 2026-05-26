@@ -17,8 +17,10 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 setup_sandbox() {
   SANDBOX=$(mktemp -d -t randy-test.XXXXXX)
   export HOME="$SANDBOX"
+  export RANDY_SESSION_KEY="test-$$"
   mkdir -p "$HOME/.claude/randy"
   cp -R "$REPO_ROOT/persona" "$HOME/.claude/randy/persona"
+  cp -R "$REPO_ROOT/lib" "$HOME/.claude/randy/lib"
 }
 
 # teardown_sandbox: clean up the temp HOME
@@ -27,6 +29,7 @@ teardown_sandbox() {
     rm -rf "$SANDBOX"
   fi
   unset SANDBOX
+  unset RANDY_SESSION_KEY
 }
 
 # assert: report pass/fail for a boolean condition

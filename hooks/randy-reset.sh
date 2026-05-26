@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 # SessionStart hook for /randy.
-# Wipes Macho-mode state so every new Claude Code session starts clean.
-# Never fail — never block session startup.
+# Removes THIS session's state file plus any stale state files from
+# Claude Code instances that have already exited. Never fails — never
+# blocks session startup.
 
 trap 'exit 0' ERR
-rm -f "$HOME/.claude/randy/state.json"
+
+source "$HOME/.claude/randy/lib/randy-common.sh"
+
+# This session starts with Macho off.
+rm -f "$(randy_state_file)" 2>/dev/null || true
+
+# Clean up state files from previous sessions whose processes are gone.
+randy_prune_stale_state_files
+
 exit 0

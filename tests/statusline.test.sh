@@ -16,14 +16,14 @@ teardown_sandbox
 
 # Case B: enabled=false -> empty output
 setup_sandbox
-echo '{"enabled":false,"intensity":"dialed"}' > "$HOME/.claude/randy/state.json"
+echo '{"enabled":false,"intensity":"dialed"}' > "$HOME/.claude/randy/state-${RANDY_SESSION_KEY}.json"
 out=$(echo "$STDIN_JSON" | bash "$REPO_ROOT/statusline/randy-seg.sh" 2>/dev/null)
 assert_empty "empty segment when enabled=false" "$out"
 teardown_sandbox
 
 # Case C: enabled=true, intensity=dialed -> yellow segment with DIALED text
 setup_sandbox
-echo '{"enabled":true,"intensity":"dialed"}' > "$HOME/.claude/randy/state.json"
+echo '{"enabled":true,"intensity":"dialed"}' > "$HOME/.claude/randy/state-${RANDY_SESSION_KEY}.json"
 out=$(echo "$STDIN_JSON" | bash "$REPO_ROOT/statusline/randy-seg.sh" 2>/dev/null)
 assert_contains "segment contains MACHO label" "$out" "MACHO"
 assert_contains "segment contains DIALED label" "$out" "DIALED"
@@ -32,7 +32,7 @@ teardown_sandbox
 
 # Case D: enabled=true, intensity=full -> red segment with FULL text
 setup_sandbox
-echo '{"enabled":true,"intensity":"full"}' > "$HOME/.claude/randy/state.json"
+echo '{"enabled":true,"intensity":"full"}' > "$HOME/.claude/randy/state-${RANDY_SESSION_KEY}.json"
 out=$(echo "$STDIN_JSON" | bash "$REPO_ROOT/statusline/randy-seg.sh" 2>/dev/null)
 assert_contains "segment contains FULL label" "$out" "FULL"
 assert_contains "segment uses red ANSI" "$out" $'\033[31m'
@@ -40,7 +40,7 @@ teardown_sandbox
 
 # Case E: corrupted state -> empty output, no crash
 setup_sandbox
-echo 'garbage' > "$HOME/.claude/randy/state.json"
+echo 'garbage' > "$HOME/.claude/randy/state-${RANDY_SESSION_KEY}.json"
 out=$(echo "$STDIN_JSON" | bash "$REPO_ROOT/statusline/randy-seg.sh" 2>/dev/null)
 rc=$?
 assert "exits 0 with corrupted state" "[[ $rc -eq 0 ]]"

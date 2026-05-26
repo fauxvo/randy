@@ -54,6 +54,7 @@ ln_safe "$REPO_ROOT/hooks/randy-inject.sh"    "$CLAUDE_DIR/hooks/randy-inject.sh
 ln_safe "$REPO_ROOT/hooks/randy-reset.sh"     "$CLAUDE_DIR/hooks/randy-reset.sh"
 ln_safe "$REPO_ROOT/statusline/randy-seg.sh"  "$CLAUDE_DIR/statusline/randy-seg.sh"
 ln_safe "$REPO_ROOT/persona"                  "$CLAUDE_DIR/randy/persona"
+ln_safe "$REPO_ROOT/lib"                      "$CLAUDE_DIR/randy/lib"
 
 # Step 5: settings.json patch (requires jq)
 if command -v jq >/dev/null 2>&1; then
