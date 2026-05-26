@@ -21,14 +21,21 @@ fi
 # Step 2: ensure target directories exist
 mkdir -p "$CLAUDE_DIR/commands" "$CLAUDE_DIR/hooks" "$CLAUDE_DIR/statusline" "$CLAUDE_DIR/randy"
 
-# Step 3: chmod +x source scripts
-chmod +x "$REPO_ROOT/hooks/randy-inject.sh" \
-         "$REPO_ROOT/hooks/randy-reset.sh" \
-         "$REPO_ROOT/statusline/randy-seg.sh" \
-         "$REPO_ROOT/install.sh" \
-         "$REPO_ROOT/uninstall.sh" 2>/dev/null || true
+# Step 3: chmod +x source scripts (warn loudly if chmod fails — silent
+# failure here means hooks won't execute and Macho mode appears to do nothing)
+if ! chmod +x "$REPO_ROOT/hooks/randy-inject.sh" \
+              "$REPO_ROOT/hooks/randy-reset.sh" \
+              "$REPO_ROOT/statusline/randy-seg.sh" \
+              "$REPO_ROOT/install.sh" \
+              "$REPO_ROOT/uninstall.sh" 2>/dev/null; then
+  yellow "WARNING: chmod +x failed on one or more scripts. Hooks may not execute."
+fi
 
-# Step 4: create symlinks (replace if already symlinked, error if a real file is in the way)
+# Step 4: create symlinks
+# - If a symlink already exists at the destination, replace it (idempotent re-install).
+# - If a real directory exists (e.g., the persona dir from a prior install before
+#   we switched to symlinking, or test setup), replace it with the symlink.
+# - If a real file exists, refuse — never clobber user files.
 ln_safe() {
   local src="$1" dst="$2"
   if [[ -L "$dst" ]]; then
