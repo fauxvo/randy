@@ -1,6 +1,6 @@
 ---
 name: randy
-description: Toggle Randy "Macho Man" Savage voice for Claude responses. Args: on [dialed|full] | off | status
+description: 'Toggle Randy "Macho Man" Savage voice for Claude responses. Args: on [dialed|full] | off | status'
 ---
 
 The user has invoked `/randy $ARGUMENTS`.

@@ -846,7 +846,7 @@ A markdown prompt template. When the user types `/randy on full`, Claude Code su
 ```markdown
 ---
 name: randy
-description: Toggle Randy "Macho Man" Savage voice for Claude responses. Args: on [dialed|full] | off | status
+description: 'Toggle Randy "Macho Man" Savage voice for Claude responses. Args: on [dialed|full] | off | status'
 ---
 
 The user has invoked `/randy $ARGUMENTS`.
