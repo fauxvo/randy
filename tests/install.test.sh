@@ -63,4 +63,45 @@ assert "preexisting unrelated hook preserved" "[[ $preserved -eq 1 ]]"
 assert "randy hook added alongside" "[[ $randy_added -eq 1 ]]"
 teardown_sandbox
 
+# Case C: install then uninstall -> all symlinks gone, settings.json clean
+setup_sandbox
+echo '{}' > "$HOME/.claude/settings.json"
+bash "$REPO_ROOT/install.sh" >/dev/null 2>&1
+bash "$REPO_ROOT/uninstall.sh" >/dev/null 2>&1
+rc=$?
+assert "uninstall exits 0" "[[ $rc -eq 0 ]]"
+assert "command symlink removed" "[[ ! -L \"$HOME/.claude/commands/randy.md\" ]]"
+assert "inject hook symlink removed" "[[ ! -L \"$HOME/.claude/hooks/randy-inject.sh\" ]]"
+assert "reset hook symlink removed" "[[ ! -L \"$HOME/.claude/hooks/randy-reset.sh\" ]]"
+assert "statusline symlink removed" "[[ ! -L \"$HOME/.claude/statusline/randy-seg.sh\" ]]"
+assert "persona symlink removed" "[[ ! -L \"$HOME/.claude/randy/persona\" ]]"
+# settings.json no longer mentions randy
+settings_content=$(cat "$HOME/.claude/settings.json")
+[[ "$settings_content" == *"randy-inject"* ]] && fail=1 || fail=0
+assert "settings.json no longer mentions randy-inject" "[[ $fail -eq 0 ]]"
+[[ "$settings_content" == *"randy-reset"* ]] && fail=1 || fail=0
+assert "settings.json no longer mentions randy-reset" "[[ $fail -eq 0 ]]"
+# runtime state.json gone
+assert "runtime state cleaned" "[[ ! -f \"$HOME/.claude/randy/state.json\" ]]"
+teardown_sandbox
+
+# Case D: uninstall preserves unrelated hooks
+setup_sandbox
+cat > "$HOME/.claude/settings.json" <<'EOF'
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {"matcher": "*", "hooks": [{"type": "command", "command": "bash /tmp/other-hook.sh"}]}
+    ]
+  }
+}
+EOF
+bash "$REPO_ROOT/install.sh" >/dev/null 2>&1
+bash "$REPO_ROOT/uninstall.sh" >/dev/null 2>&1
+preserved=$(jq '[.hooks.UserPromptSubmit[]?.hooks[]? | select(.command | test("other-hook"))] | length' "$HOME/.claude/settings.json")
+randy_gone=$(jq '[.hooks.UserPromptSubmit[]?.hooks[]? | select(.command | test("randy-inject"))] | length' "$HOME/.claude/settings.json")
+assert "unrelated hook still present after uninstall" "[[ $preserved -eq 1 ]]"
+assert "randy hook removed after uninstall" "[[ $randy_gone -eq 0 ]]"
+teardown_sandbox
+
 summary
