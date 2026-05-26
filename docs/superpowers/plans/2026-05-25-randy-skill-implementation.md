@@ -4,7 +4,7 @@
 
 **Goal:** Build a Claude Code slash command `/randy` that toggles assistant chat responses into Randy "Macho Man" Savage's voice, persisting per-session via a marker file and two hooks, with a statusline indicator.
 
-**Architecture:** A SessionStart hook clears `~/.claude/randy/state.json` on every new Claude Code session. A UserPromptSubmit hook reads `state.json` and (when enabled) emits a JSON `{systemMessage: ...}` containing the active persona instructions, which Claude Code injects as a system reminder. The slash command is a prompt template that instructs the assistant to use the Bash tool to write/delete the state file. A statusline shell script renders the current state with ANSI color.
+**Architecture:** A SessionStart hook clears `~/.claude/randy/state.json` on every new Claude Code session. A UserPromptSubmit hook reads `state.json` and (when enabled) emits JSON `{"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "<persona>"}}`, which Claude Code injects into the model's prompt context. The slash command is a prompt template that instructs the assistant to use the Bash tool to write/delete the state file. A statusline shell script renders the current state with ANSI color.
 
 **Tech Stack:** Bash, `jq`, Claude Code (hooks, slash commands, statusline). No JavaScript/TypeScript runtime. No package manager. Tests are plain bash scripts in `tests/`.
 
@@ -525,7 +525,7 @@ EOF
 
 ## Task 5: `randy-inject.sh` (UserPromptSubmit hook)
 
-Reads `state.json`. When enabled, emits Claude Code hook JSON containing the active persona as a `systemMessage`. Otherwise silent.
+Reads `state.json`. When enabled, emits Claude Code hook JSON `{"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "..."}}` containing the active persona. Otherwise silent. NOTE: An earlier draft of this plan incorrectly used a top-level `systemMessage` field — that displays text to the user, not to the model. The `hookSpecificOutput.additionalContext` form below is what actually injects context (verified via Context7's mirror of `code.claude.com/docs/en/hooks`).
 
 **Files:**
 - Create: `tests/hook-inject.test.sh`
@@ -564,12 +564,14 @@ echo '{"enabled":true,"intensity":"dialed"}' > "$HOME/.claude/randy/state.json"
 out=$(bash "$REPO_ROOT/hooks/randy-inject.sh" 2>/dev/null)
 rc=$?
 assert "exits 0 when enabled=true" "[[ $rc -eq 0 ]]"
-assert_contains "output is JSON with systemMessage" "$out" '"systemMessage"'
+assert_contains "output is JSON with hookSpecificOutput" "$out" '"hookSpecificOutput"'
+assert_contains "output uses additionalContext field" "$out" '"additionalContext"'
+assert_contains "output names UserPromptSubmit event" "$out" '"UserPromptSubmit"'
 assert_contains "output mentions dialed intensity" "$out" "intensity: dialed"
 assert_contains "output includes persona content" "$out" "Macho Mode: DIALED-IN"
-# Verify it parses as valid JSON
-parsed=$(echo "$out" | jq -r '.systemMessage' 2>/dev/null)
-assert "output is valid JSON" "[[ -n \"$parsed\" ]]"
+# Verify the JSON parses and additionalContext is populated
+parsed=$(echo "$out" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null)
+assert_nonempty "additionalContext parses out as non-empty" "$parsed"
 teardown_sandbox
 
 # Case D: enabled=true, intensity=full -> JSON with full persona
@@ -615,8 +617,10 @@ Expected: FAIL — `hooks/randy-inject.sh` doesn't exist.
 #!/usr/bin/env bash
 # UserPromptSubmit hook for /randy.
 # Reads ~/.claude/randy/state.json. When enabled, emits Claude Code
-# hook JSON {"systemMessage": "<persona instructions>"} so the assistant
-# responds in Macho Man voice.
+# hook JSON {hookSpecificOutput: {hookEventName, additionalContext}} so
+# the persona instructions are injected into the model's context.
+# (systemMessage shows text to the user; additionalContext is what
+# actually adds context for the model — verified via Context7 docs.)
 #
 # MUST fail silently — never block the user's prompt.
 
@@ -645,8 +649,14 @@ persona_file="$PERSONA_DIR/${intensity}.md"
 reminder=$(printf 'Macho mode is currently ON (intensity: %s). Respond as Randy "Macho Man" Savage per the following persona instructions:\n\n%s' \
   "$intensity" "$(cat "$persona_file")")
 
-# Emit Claude Code hook JSON (systemMessage triggers context injection)
-jq -n --arg msg "$reminder" '{systemMessage: $msg}'
+# Emit Claude Code hook JSON. The hookSpecificOutput.additionalContext
+# field is what Claude Code injects into the model's prompt context.
+jq -n --arg msg "$reminder" '{
+  hookSpecificOutput: {
+    hookEventName: "UserPromptSubmit",
+    additionalContext: $msg
+  }
+}'
 ```
 
 - [ ] **Step 4: Make it executable**
@@ -672,9 +682,12 @@ git commit -m "$(cat <<'EOF'
 feat(hooks): add UserPromptSubmit hook to inject Macho persona
 
 randy-inject.sh reads ~/.claude/randy/state.json and, when enabled,
-emits Claude Code hook JSON {"systemMessage": "..."} containing the
-active persona instructions. Silent no-op when disabled, missing,
-corrupted, or jq is unavailable — never blocks the user's prompt.
+emits Claude Code hook JSON
+  {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
+                          "additionalContext": "..."}}
+containing the active persona instructions. Silent no-op when
+disabled, missing, corrupted, or jq is unavailable — never blocks
+the user's prompt.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF

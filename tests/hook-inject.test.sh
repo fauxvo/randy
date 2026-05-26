@@ -26,12 +26,14 @@ echo '{"enabled":true,"intensity":"dialed"}' > "$HOME/.claude/randy/state.json"
 out=$(bash "$REPO_ROOT/hooks/randy-inject.sh" 2>/dev/null)
 rc=$?
 assert "exits 0 when enabled=true" "[[ $rc -eq 0 ]]"
-assert_contains "output is JSON with systemMessage" "$out" '"systemMessage"'
+assert_contains "output is JSON with hookSpecificOutput" "$out" '"hookSpecificOutput"'
+assert_contains "output uses additionalContext field" "$out" '"additionalContext"'
+assert_contains "output names UserPromptSubmit event" "$out" '"UserPromptSubmit"'
 assert_contains "output mentions dialed intensity" "$out" "intensity: dialed"
 assert_contains "output includes persona content" "$out" "Macho Mode: DIALED-IN"
-# Verify it parses as valid JSON
-parsed=$(echo "$out" | jq -r '.systemMessage' 2>/dev/null)
-assert_nonempty "output is valid JSON" "$parsed"
+# Verify the JSON parses and additionalContext is populated
+parsed=$(echo "$out" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null)
+assert_nonempty "additionalContext parses out as non-empty" "$parsed"
 teardown_sandbox
 
 # Case D: enabled=true, intensity=full -> JSON with full persona

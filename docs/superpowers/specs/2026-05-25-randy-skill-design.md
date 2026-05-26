@@ -7,7 +7,8 @@
 ## Revision History
 
 - **2026-05-25 (initial):** Original design assuming UserPromptSubmit hook receives `$CLAUDE_SESSION_ID` and that hook stdout is directly injected into context.
-- **2026-05-25 (revised):** Verified via claude-code-guide that (a) UserPromptSubmit does NOT receive `$CLAUDE_SESSION_ID`, (b) hooks must emit JSON `{systemMessage: "..."}` to inject context, (c) slash commands are prompt templates the assistant interprets, not executed shell. Replaced session_id check with a SessionStart hook that wipes state on every new session — simpler and more reliable.
+- **2026-05-25 (revised):** Verified via claude-code-guide that (a) UserPromptSubmit does NOT receive `$CLAUDE_SESSION_ID` as an env var, (b) hooks emit JSON on stdout to inject context, (c) slash commands are prompt templates the assistant interprets, not executed shell. Replaced session_id check with a SessionStart hook that wipes state on every new session — simpler and more reliable.
+- **2026-05-25 (re-revised after Context7 cross-check):** The claude-code-guide agent's "systemMessage field" recommendation was wrong. Per Context7's mirror of `code.claude.com/docs`, `systemMessage` shows a message to the USER, not the model. The correct field for context injection is `hookSpecificOutput.additionalContext` with `hookEventName: "UserPromptSubmit"`. Also: `session_id` IS available to UserPromptSubmit hooks — just on stdin JSON, not as an env var. Our SessionStart-reset approach still works (simpler than reading stdin), so it stays. Hook output JSON shape corrected.
 
 ## Summary
 
@@ -104,8 +105,8 @@ User types message
   → randy-inject.sh runs:
       reads ~/.claude/randy/state.json
       if missing or enabled=false → emit nothing (exit 0), Claude responds normally
-      else → read persona/{dialed|full}.md, emit JSON {"systemMessage": "<persona>"} on stdout
-  → Claude Code injects the systemMessage into Claude's context as a system reminder
+      else → read persona/{dialed|full}.md, emit JSON {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "<persona>"}} on stdout
+  → Claude Code injects the additionalContext into Claude's prompt context
   → Claude responds in Macho voice
 ```
 
@@ -187,11 +188,17 @@ reminder="Macho mode is currently ON (intensity: $intensity). Respond as Randy \
 
 $(cat "$persona_file")"
 
-# Emit Claude Code hook JSON to inject the reminder
-jq -n --arg msg "$reminder" '{systemMessage: $msg}'
+# Emit Claude Code hook JSON. The additionalContext field (nested under
+# hookSpecificOutput) is what Claude Code injects into the model's prompt.
+jq -n --arg msg "$reminder" '{
+  hookSpecificOutput: {
+    hookEventName: "UserPromptSubmit",
+    additionalContext: $msg
+  }
+}'
 ```
 
-The hook's stdout MUST be valid JSON with a `systemMessage` field — that is what Claude Code's hook protocol requires to inject context. Plain stdout text is logged but not injected.
+The hook's stdout MUST be valid JSON with the `hookSpecificOutput.additionalContext` field shown above. Plain stdout text is shown in the transcript but not injected into the model's context. The `systemMessage` field (which an earlier draft used) displays a message to the *user*, not the model — using it would cause Macho mode to silently do nothing useful. Verified against Context7's mirror of `code.claude.com/docs/en/hooks`.
 
 ### Persona file contents
 
@@ -308,8 +315,9 @@ All implementation-time unknowns from the initial draft have been verified via c
 
 - **Hook event name:** `UserPromptSubmit` (PascalCase, exact).
 - **Hook registration schema:** Nested under `hooks.UserPromptSubmit[].hooks[]` with `type: "command"` and `command: "bash ..."` (see Hook Behavior section for the actual JSON shape).
-- **Hook output:** Hooks must emit JSON with a `systemMessage` field on stdout to inject context. Plain text is logged but not injected.
-- **Hook env vars:** `UserPromptSubmit` receives `CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT`, `CLAUDE_PLUGIN_DATA`, `CLAUDE_EFFORT`. **Not** `CLAUDE_SESSION_ID` — hence the SessionStart-hook approach for session-keyed behavior.
+- **Hook output:** Hooks emit JSON on stdout. For non-blocking context injection, use `{"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "..."}}`. The `systemMessage` top-level field is a USER-facing message and does NOT inject context for the model. (Corrected after Context7 cross-check — `code.claude.com/docs/en/hooks`.) Plain non-JSON text on stdout is shown in the transcript as hook output, not injected.
+- **Hook input:** UserPromptSubmit receives stdin JSON containing `session_id`, `transcript_path`, `cwd`, `permission_mode`, `hook_event_name`, `prompt`. SessionStart stdin includes `session_id`, `cwd`, `hook_event_name`, `source`, `model`.
+- **Hook env vars:** `UserPromptSubmit` receives `CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT`, `CLAUDE_PLUGIN_DATA`, `CLAUDE_EFFORT`. Notably `CLAUDE_SESSION_ID` is NOT an env var — session_id is on stdin JSON (see above). The SessionStart-reset approach avoids the need to parse stdin for session matching.
 - **Slash command model:** Prompt template, not executed shell. `$ARGUMENTS` / `$1` / `$N` are substituted into the markdown body before Claude reads it. Env vars are unavailable inside the template body.
 - **Statusline:** Receives full session JSON on stdin (includes `session_id`, `model`, `cwd`, etc.), outputs plain text + ANSI. Refreshes event-driven with 300ms debounce; optional `refreshInterval` for time-based data.
 

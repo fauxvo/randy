@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # UserPromptSubmit hook for /randy.
 # Reads ~/.claude/randy/state.json. When enabled, emits Claude Code
-# hook JSON {"systemMessage": "<persona instructions>"} so the assistant
-# responds in Macho Man voice.
+# hook JSON {hookSpecificOutput: {hookEventName, additionalContext}} so
+# the persona instructions are injected into the model's context.
+# (systemMessage shows text to the user; additionalContext is what
+# actually adds context for the model — verified via Context7 docs.)
 #
 # MUST fail silently — never block the user's prompt.
 
@@ -31,5 +33,11 @@ persona_file="$PERSONA_DIR/${intensity}.md"
 reminder=$(printf 'Macho mode is currently ON (intensity: %s). Respond as Randy "Macho Man" Savage per the following persona instructions:\n\n%s' \
   "$intensity" "$(cat "$persona_file")")
 
-# Emit Claude Code hook JSON (systemMessage triggers context injection)
-jq -n --arg msg "$reminder" '{systemMessage: $msg}'
+# Emit Claude Code hook JSON. The hookSpecificOutput.additionalContext
+# field is what Claude Code injects into the model's prompt context.
+jq -n --arg msg "$reminder" '{
+  hookSpecificOutput: {
+    hookEventName: "UserPromptSubmit",
+    additionalContext: $msg
+  }
+}'
