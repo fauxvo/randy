@@ -24,6 +24,9 @@ randy_session_key() {
   while [[ -n "$pid" && "$pid" -gt 1 && "$depth" -lt 20 ]]; do
     local cmd
     cmd=$(ps -p "$pid" -o comm= 2>/dev/null | tr -d '[:space:]')
+    # macOS `ps -o comm=` returns bare "claude" for the Claude Code binary;
+    # the */claude branch is a safety net for environments where comm includes
+    # a path (rare; some Linux installs / non-standard exec wrappers).
     if [[ "$cmd" == "claude" || "$cmd" == */claude ]]; then
       printf '%s' "$pid"
       return 0

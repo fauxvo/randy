@@ -71,7 +71,7 @@ After installing, run through these to confirm everything works:
 5. **Escape phrase:** With Macho on, say "be serious for a sec" → verify clean response → next message → back to Macho.
 6. **Session reset:** `/randy on`, quit Claude Code, restart, new conversation → verify Macho is off.
 7. **Statusline:** Toggle on / on full / off → verify segment appears/disappears with correct colors.
-8. **Hook resilience:** `echo 'garbage' > ~/.claude/randy/state.json`; send a prompt → verify the prompt still works and Claude responds normally (Macho is silently off).
+8. **Hook resilience:** Corrupt the current session's state file (`source ~/.claude/randy/lib/randy-common.sh && echo garbage > "$(randy_state_file)"`); send a prompt → verify the prompt still works and Claude responds normally (Macho is silently off).
 9. **Install/uninstall round-trip:** Install, verify works; uninstall, verify nothing left behind in `~/.claude/`.
 
 ## Known limitations
